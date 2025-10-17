@@ -1,39 +1,3 @@
-print("Hello Python Project in VS Code!")
-"""
-ECourts Scraper - Intern Task
-Reference: user-uploaded task brief: eCourts_Scraper_Intern_Task_Final.pdf.  
-See file: fileciteturn1file0
-
-This script is a best-effort, ready-to-run Python CLI implementation implementing the intern task requirements.
-
-Features implemented:
- - Search by CNR or by case type/number/year (basic)
- - Check if case is listed today or tomorrow (by downloading cause lists for specified courts)
- - Show serial number and court name if listed
- - Optionally download case PDF (if a direct PDF link is found)
- - Download entire cause list for today (save as JSON/text)
- - CLI options: --cnr, --case, --today, --tomorrow, --causelist, --download-pdf, --out
-
-Important notes / limitations:
- - The official eCourts web UI sometimes uses dynamic JS and captcha for cause-list downloads.
- - This script uses requests + BeautifulSoup and will work for endpoints that return HTML/JSON.
- - If the site requires captcha or heavy JS, use Selenium (not included) or use the open-source wrapper listed in README.
- - Some selectors / endpoints may change; error handling is included and messages guide you how to adapt.
-
-Dependencies:
- - Python 3.9+
- - requests, beautifulsoup4
- - tqdm (optional, for progress)
-
-Install:
-    pip install -r requirements.txt
-
-Usage examples:
-    python ecourts_scraper_project.py --cnr DLST020314162024 --today --download-pdf --out results.json
-    python ecourts_scraper_project.py --case "RFA" 123 2024 --tomorrow
-    python ecourts_scraper_project.py --causelist --out cause_list_today.json
-
-"""
 
 import argparse
 import requests
@@ -44,13 +8,10 @@ import datetime
 from urllib.parse import urljoin, urlencode
 from typing import Optional, Dict, Any, List
 
-# Constants
 BASE = "https://services.ecourts.gov.in/ecourtindia_v6/"
 HEADERS = {
     "User-Agent": "ecourts-scraper/1.0 (+https://github.com/yourname/ecourts-scraper)"
 }
-
-# Helper utilities
 
 def safe_get(url: str, params: dict = None, timeout: int = 15) -> Optional[requests.Response]:
     try:
@@ -81,13 +42,7 @@ def download_file(url: str, out_path: str) -> bool:
         print(f"[ERROR] Failed to save file: {e}")
         return False
 
-
-# Core scraping/search logic
-
 def search_by_cnr(cnr: str) -> Dict[str, Any]:
-    """Search case by CNR using the public page. Returns a dictionary with available info.
-    NOTE: The eCourts site may provide a JSON endpoint for CNR; here we attempt to fetch the CNR page and parse it.
-    """
     print(f"Searching for CNR: {cnr}")
     # Try direct query page
     params = {"cnr": cnr}
@@ -100,23 +55,19 @@ def search_by_cnr(cnr: str) -> Dict[str, Any]:
         except Exception:
             pass
 
-    # Fallback: fetch the regular CNR page and parse
     r = safe_get(urljoin(BASE, f"?p=casestatus%2Findex&cnr={cnr}"))
     result = {"cnr": cnr, "found": False, "raw": None}
     if not r:
         return result
     html = r.text
-    result["raw"] = html[:5000]  # store a snippet for debugging
+    result["raw"] = html[:5000] 
 
     soup = BeautifulSoup(html, "html.parser")
-    # Try to locate an element that contains case details
-    # NOTE: these selectors may need to be adjusted for the live site
     info = {}
     title = soup.find(lambda t: t.name in ["h1", "h2", "h3"] and "CNR" in t.text)
     if title:
         info["title"] = title.text.strip()
 
-    # Try to find links to orders / PDF
     pdf_links = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -125,7 +76,6 @@ def search_by_cnr(cnr: str) -> Dict[str, Any]:
     if pdf_links:
         info["pdf_links"] = pdf_links
 
-    # Try to detect court name / listing info from page text
     texts = soup.get_text(separator="|", strip=True)
     if "cause list" in texts.lower() or "listed" in texts.lower():
         info["page_mentions_listing"] = True
@@ -138,19 +88,16 @@ def search_by_case(case_type: str, number: str, year: str) -> Dict[str, Any]:
     """Search by case type/number/year. This will attempt case-status search form.
     """
     print(f"Searching for case: {case_type} {number}/{year}")
-    # There's a case-status search page which accepts form data. Here we try a conservative approach.
-    # Build query parameters similar to what the UI uses. These might need adjusting.
     params = {
         "case_type": case_type,
         "case_no": number,
         "case_year": year
     }
-    # Try a search endpoint guess
+
     r = safe_get(urljoin(BASE, "?p=casestatus%2Findex"), params=params)
     if not r:
         return {"found": False}
     soup = BeautifulSoup(r.text, "html.parser")
-    # Find likely links / results
     results = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -161,17 +108,14 @@ def search_by_case(case_type: str, number: str, year: str) -> Dict[str, Any]:
 
 
 def get_cause_list_for_court(state: str = None, district: str = None, court_complex: str = None, date: datetime.date = None) -> Dict[str, Any]:
-    """Attempt to fetch cause list for a court on a date.
-    The real site requires selecting state/district/complex and entering captcha; so this function is a best-effort and may fail if captcha is enforced.
-    """
+ 
     date = date or datetime.date.today()
     print(f"Attempting to fetch cause list for {date.isoformat()} (may require captcha).")
-    # Try the cause list index page to get form tokens
     r = safe_get(urljoin(BASE, "?p=cause_list%2Findex"))
     if not r:
         return {"ok": False, "reason": "Failed to load cause list index"}
     soup = BeautifulSoup(r.text, "html.parser")
-    # This site uses dynamic form and captcha; we attempt to find a direct PDF link pattern for cause lists if present.
+
     pdfs = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -183,29 +127,26 @@ def get_cause_list_for_court(state: str = None, district: str = None, court_comp
 
 
 def check_listing_in_causelist(causelist_html: str, case_identifiers: Dict[str, str]) -> Optional[Dict[str, str]]:
-    """Parse a cause-list HTML and try to find the case. Returns dict with serial & court_name if found.
-    case_identifiers can contain keys like cnr, case_type, number, year.
-    """
+    
     soup = BeautifulSoup(causelist_html, "html.parser")
     text = soup.get_text(separator="|", strip=True).lower()
-    # search for CNR if available
+
     if "cnr" in case_identifiers and case_identifiers["cnr"]:
         cnr = case_identifiers["cnr"].lower()
         if cnr in text:
-            # crude extraction: find lines containing cnr
+
             for line in text.split("|"):
                 if cnr in line:
-                    # Attempt to extract serial number and court name from nearby tokens
                     tokens = line.split()
                     serial = None
                     court = None
-                    # heuristics: first numeric token might be serial
+                   
                     for tok in tokens:
                         if tok.isdigit():
                             serial = tok
                             break
                     return {"serial": serial or "?", "court": court or "?", "line": line}
-    # fallback: search by case_no/year
+
     if "number" in case_identifiers and "year" in case_identifiers:
         needle = f"{case_identifiers['number']}/{case_identifiers['year']}"
         if needle.lower() in text:
@@ -216,8 +157,6 @@ def check_listing_in_causelist(causelist_html: str, case_identifiers: Dict[str, 
                     return {"serial": serial or "?", "court": "?", "line": line}
     return None
 
-
-# Main CLI flow
 
 def main():
     parser = argparse.ArgumentParser(description="eCourts Scraper - Intern Task implementation")
@@ -238,7 +177,7 @@ def main():
         output["query"]["cnr"] = args.cnr
         res = search_by_cnr(args.cnr)
         output["results"] = res
-        # If checking today/tomorrow: attempt to fetch cause lists and search
+       
         if args.today or args.tomorrow:
             date = datetime.date.today() if args.today else datetime.date.today() + datetime.timedelta(days=1)
             cl = get_cause_list_for_court(date=date)
@@ -250,7 +189,7 @@ def main():
                 if r:
                     found = check_listing_in_causelist(r.text, {"cnr": args.cnr})
                     output["found_in_causelist"] = found
-        # If download-pdf requested
+     
         if args.download_pdf and res.get("info") and res["info"].get("pdf_links"):
             os.makedirs("downloads", exist_ok=True)
             for i, pdf in enumerate(res["info"]["pdf_links"]):
@@ -285,7 +224,7 @@ def main():
                 outp = os.path.join("cause_lists", f"cause_list_{i+1}.pdf")
                 download_file(pdf, outp)
 
-    # Save output
+
     write_json(args.out, output)
     print("Done.")
 
