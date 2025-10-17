@@ -44,9 +44,8 @@ def download_file(url: str, out_path: str) -> bool:
 
 def search_by_cnr(cnr: str) -> Dict[str, Any]:
     print(f"Searching for CNR: {cnr}")
-    # Try direct query page
     params = {"cnr": cnr}
-    # Attempt guess of JSON endpoint (may change) - this is a best-effort approach.
+
     json_guess = urljoin(BASE, "?p=casejson&cnr=")
     r = safe_get(urljoin(BASE, f"?p=casestatus%2Fcase_details&cnr={cnr}"))
     if r and r.headers.get("Content-Type", "").startswith("application/json"):
@@ -85,8 +84,7 @@ def search_by_cnr(cnr: str) -> Dict[str, Any]:
 
 
 def search_by_case(case_type: str, number: str, year: str) -> Dict[str, Any]:
-    """Search by case type/number/year. This will attempt case-status search form.
-    """
+
     print(f"Searching for case: {case_type} {number}/{year}")
     params = {
         "case_type": case_type,
